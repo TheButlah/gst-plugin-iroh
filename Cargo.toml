@@ -1,0 +1,80 @@
+[package]
+name = "gst-plugin-iroh"
+version = "0.1.0"
+authors = ["Frando <franz@n0.computer>"]
+repository = "https://github.com/n0-computer/gst-plugin-iroh"
+license = "MPL-2.0"
+edition = "2021"
+description = "GStreamer Plugin for Iroh"
+rust-version = "1.81"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+glib = "0.20.9"
+gst = { package = "gstreamer", version = "0.23.5" }
+gst-base = { package = "gstreamer-base", version = "0.23.5", features = [
+    "v1_22",
+    "v1_24",
+] }
+tokio = { version = "1.36.0", default-features = false, features = [
+    "time",
+    "rt-multi-thread",
+    "macros",
+] }
+futures = "0.3.30"
+quinn = { package = "iroh-quinn", version = "0.13" }
+quinn-proto = { package = "iroh-quinn-proto", version = "0.13" }
+rustls = { version = "0.23", default-features = false, features = ["std"] }
+rustls-pemfile = "2"
+rustls-pki-types = "1"
+rcgen = "0.13"
+bytes = "1.5.0"
+thiserror = "2"
+async-channel = "2.3"
+itertools = "0.14"
+env_logger = "0.11"
+web-transport-quinn = "0.3.3"
+url = "2.5.2"
+once_cell = "1.20.2"
+iroh = { version = "0.33.0", default-features = false }
+anyhow = "1.0.97"
+iroh-roq = "0.1.0"
+n0-future = "0.1.2"
+webrtc-util = "0.10.0"
+rand = "0.8"
+
+[dev-dependencies]
+gst-check = { package = "gstreamer-check", version = "0.23.5", features = [
+    "v1_20",
+] }
+serial_test = "3"
+ctrlc = "3.4"
+clap = { version = "4", features = ["derive"] }
+
+[lib]
+name = "gstiroh"
+crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
+
+[build-dependencies]
+gst-plugin-version-helper = { package = "gst-plugin-version-helper", version = "0.8.2" }
+
+[features]
+static = []
+capi = []
+doc = []
+
+[package.metadata.capi]
+min_version = "0.9.21"
+
+[package.metadata.capi.header]
+enabled = false
+
+[package.metadata.capi.library]
+install_subdir = "gstreamer-1.0"
+versioning = false
+import_library = false
+
+[package.metadata.capi.pkg_config]
+requires_private = "gstreamer-1.0, gstreamer-base-1.0, gobject-2.0, glib-2.0"
