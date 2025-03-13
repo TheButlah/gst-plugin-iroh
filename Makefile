@@ -23,6 +23,8 @@ endif
 all: build
 
 build:
+	rm target/debug/libgstiroh.so -f
+	rm target/debug/deps/libgstiroh.so -f
 	cargo build --all $(CARGO_FLAGS)
 
 install: build

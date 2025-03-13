@@ -16,6 +16,7 @@ use gst::glib;
 mod common;
 mod irohrtpsink;
 mod irohrtpsrc;
+mod util;
 
 fn plugin_init(plugin: &gst::Plugin) -> Result<(), glib::BoolError> {
     env_logger::init();

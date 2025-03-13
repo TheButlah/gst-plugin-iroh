@@ -679,7 +679,16 @@ version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4a9b99b9cbbe49445b21764dc0625032a89b145a2642e67603e1c936f5458d05"
 dependencies = [
- "derive_more-impl",
+ "derive_more-impl 1.0.0",
+]
+
+[[package]]
+name = "derive_more"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "093242cf7570c207c83073cf82f79706fe7b8317e98620a47d5be7c3d8497678"
+dependencies = [
+ "derive_more-impl 2.0.1",
 ]
 
 [[package]]
@@ -687,6 +696,18 @@ name = "derive_more-impl"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb7330aeadfbe296029522e6c40f315320aba36fc43a5b3632f3795348f3bd22"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.100",
+ "unicode-xid",
+]
+
+[[package]]
+name = "derive_more-impl"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bda628edc44c4bb645fbe0f758797143e4e07926f7ebf4e9bdfbd3d2ce621df3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1200,6 +1221,7 @@ dependencies = [
  "bytes",
  "clap",
  "ctrlc",
+ "derive_more 2.0.1",
  "env_logger",
  "futures",
  "glib",
@@ -1220,8 +1242,11 @@ dependencies = [
  "rustls-pemfile",
  "rustls-pki-types",
  "serial_test",
+ "strum 0.27.1",
  "thiserror 2.0.12",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
  "url",
  "web-transport-quinn",
  "webrtc-util",
@@ -1824,7 +1849,7 @@ dependencies = [
  "crypto_box",
  "data-encoding",
  "der",
- "derive_more",
+ "derive_more 1.0.0",
  "ed25519-dalek",
  "futures-util",
  "hickory-resolver",
@@ -1852,7 +1877,7 @@ dependencies = [
  "rustls-webpki",
  "serde",
  "smallvec",
- "strum",
+ "strum 0.26.3",
  "stun-rs",
  "thiserror 2.0.12",
  "time",
@@ -1875,7 +1900,7 @@ checksum = "011d271a95b41218d22bdaf3352f29ef1dd7d6be644ca8543941655bec5f3d35"
 dependencies = [
  "curve25519-dalek",
  "data-encoding",
- "derive_more",
+ "derive_more 1.0.0",
  "ed25519-dalek",
  "getrandom 0.2.15",
  "rand_core 0.6.4",
@@ -1906,7 +1931,7 @@ dependencies = [
  "anyhow",
  "bytes",
  "cfg_aliases",
- "derive_more",
+ "derive_more 1.0.0",
  "hickory-resolver",
  "iroh-base",
  "iroh-metrics",
@@ -1991,7 +2016,7 @@ dependencies = [
  "bytes",
  "cfg_aliases",
  "data-encoding",
- "derive_more",
+ "derive_more 1.0.0",
  "hickory-resolver",
  "http 1.2.0",
  "http-body-util",
@@ -2012,7 +2037,7 @@ dependencies = [
  "rustls",
  "rustls-webpki",
  "serde",
- "strum",
+ "strum 0.26.3",
  "stun-rs",
  "thiserror 2.0.12",
  "tokio",
@@ -2317,7 +2342,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "399e11dc3b0e8d9d65b27170d22f5d779d52d9bed888db70d7e0c2c7ce3dfc52"
 dependencies = [
  "cfg_aliases",
- "derive_more",
+ "derive_more 1.0.0",
  "futures-buffered",
  "futures-lite",
  "futures-util",
@@ -2444,7 +2469,7 @@ dependencies = [
  "anyhow",
  "atomic-waker",
  "bytes",
- "derive_more",
+ "derive_more 1.0.0",
  "futures-lite",
  "futures-sink",
  "futures-util",
@@ -2891,7 +2916,7 @@ dependencies = [
  "anyhow",
  "base64",
  "bytes",
- "derive_more",
+ "derive_more 1.0.0",
  "futures-lite",
  "futures-util",
  "igd-next",
@@ -3843,7 +3868,16 @@ version = "0.26.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fec0f0aef304996cf250b31b5a10dee7980c85da9d759361292b8bca5a18f06"
 dependencies = [
- "strum_macros",
+ "strum_macros 0.26.4",
+]
+
+[[package]]
+name = "strum"
+version = "0.27.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f64def088c51c9510a8579e3c5d67c65349dcf755e5479ad3d010aa6454e2c32"
+dependencies = [
+ "strum_macros 0.27.1",
 ]
 
 [[package]]
@@ -3851,6 +3885,19 @@ name = "strum_macros"
 version = "0.26.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4c6bee85a5a24955dc440386795aa378cd9cf82acd5f764469152d2270e581be"
+dependencies = [
+ "heck",
+ "proc-macro2",
+ "quote",
+ "rustversion",
+ "syn 2.0.100",
+]
+
+[[package]]
+name = "strum_macros"
+version = "0.27.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c77a8c5abcaf0f9ce05d62342b7d298c346515365c36b673df4ebe3ced01fde8"
 dependencies = [
  "heck",
  "proc-macro2",

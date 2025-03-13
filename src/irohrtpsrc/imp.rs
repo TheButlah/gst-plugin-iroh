@@ -7,7 +7,6 @@
 //
 // SPDX-License-Identifier: MPL-2.0
 
-use async_channel::RecvError;
 use bytes::Bytes;
 use gst::{glib, prelude::*, subclass::prelude::*};
 use gst_base::prelude::*;
@@ -17,7 +16,9 @@ use iroh::NodeId;
 use std::str::FromStr;
 use std::sync::{LazyLock, Mutex};
 
-use crate::common::GlobalState;
+use crate::common::{GlobalState, DEFAULT_TIMEOUT};
+use crate::gst_err;
+use crate::util::{wait, Canceller, WaitError};
 
 static CAT: LazyLock<gst::DebugCategory> = LazyLock::new(|| {
     gst::DebugCategory::new(
@@ -28,7 +29,7 @@ static CAT: LazyLock<gst::DebugCategory> = LazyLock::new(|| {
 });
 
 struct Started {
-    receiver: async_channel::Receiver<Bytes>,
+    receiver: async_channel::Receiver<anyhow::Result<Bytes>>,
 }
 
 #[derive(Default)]
@@ -58,7 +59,7 @@ impl Default for Settings {
 pub struct IrohRtpSrc {
     settings: Mutex<Settings>,
     state: Mutex<State>,
-    // canceller: Mutex<utils::Canceller>,
+    canceller: Mutex<Canceller>,
 }
 
 impl Default for IrohRtpSrc {
@@ -66,7 +67,7 @@ impl Default for IrohRtpSrc {
         Self {
             settings: Mutex::new(Settings::default()),
             state: Mutex::new(State::default()),
-            // canceller: Mutex::new(utils::Canceller::default()),
+            canceller: Mutex::new(Canceller::default()),
         }
     }
 }
@@ -190,12 +191,8 @@ impl ObjectSubclass for IrohRtpSrc {
 impl BaseSrcImpl for IrohRtpSrc {
     fn start(&self) -> Result<(), gst::ErrorMessage> {
         let settings = self.settings.lock().unwrap();
-        let node_id = NodeId::from_str(&settings.peer).map_err(|err| {
-            gst::error_msg!(
-                gst::ResourceError::Failed,
-                ["missing or invalid peer node id: {}", err]
-            )
-        })?;
+        let node_id = NodeId::from_str(&settings.peer)
+            .map_err(gst_err!("missing or invalid peer node id: {}"))?;
         let flow_id = settings.flow_id;
         drop(settings);
 
@@ -204,13 +201,9 @@ impl BaseSrcImpl for IrohRtpSrc {
             unreachable!("IrohRtpSrc already started");
         }
         let receiver = GlobalState::get()
+            .map_err(gst_err!())?
             .receive_flow(node_id, flow_id)
-            .map_err(|err| {
-                gst::error_msg!(
-                    gst::ResourceError::Failed,
-                    ["failed to init recv eflow: {}", err]
-                )
-            })?;
+            .map_err(gst_err!())?;
         *state = State::Started(Started { receiver });
         Ok(())
     }
@@ -219,25 +212,32 @@ impl BaseSrcImpl for IrohRtpSrc {
         gst::info!(CAT, imp = self, "Stopping");
 
         let mut state = self.state.lock().unwrap();
+        match &*state {
+            State::Stopped => {
+                unreachable!("IrohRtpSrc already stopped");
+            }
+            State::Started(ref _started) => {}
+        }
+
         *state = State::Stopped;
         gst::info!(CAT, imp = self, "Stopped");
 
         Ok(())
     }
 
-    // fn unlock(&self) -> Result<(), gst::ErrorMessage> {
-    //     let mut canceller = self.canceller.lock().unwrap();
-    //     canceller.abort();
-    //     Ok(())
-    // }
+    fn unlock(&self) -> Result<(), gst::ErrorMessage> {
+        let mut canceller = self.canceller.lock().unwrap();
+        canceller.abort();
+        Ok(())
+    }
 
-    // fn unlock_stop(&self) -> Result<(), gst::ErrorMessage> {
-    //     let mut canceller = self.canceller.lock().unwrap();
-    //     if matches!(&*canceller, Canceller::Cancelled) {
-    //         *canceller = Canceller::None;
-    //     }
-    //     Ok(())
-    // }
+    fn unlock_stop(&self) -> Result<(), gst::ErrorMessage> {
+        let mut canceller = self.canceller.lock().unwrap();
+        if matches!(&*canceller, Canceller::Cancelled) {
+            *canceller = Canceller::None;
+        }
+        Ok(())
+    }
 
     fn caps(&self, filter: Option<&gst::Caps>) -> Option<gst::Caps> {
         let settings = self.settings.lock().unwrap();
@@ -269,32 +269,84 @@ impl PushSrcImpl for IrohRtpSrc {
         &self,
         _buffer: Option<&mut gst::BufferRef>,
     ) -> Result<CreateSuccess, gst::FlowError> {
-        let state = self.state.lock().unwrap();
-        let receiver = match *state {
-            State::Started(ref started) => started.receiver.clone(),
-            State::Stopped => {
-                gst::error!(
-                    CAT,
-                    imp = self,
-                    "Could not get buffer from source pad: not started"
-                );
-                return Err(gst::FlowError::Error);
+        loop {
+            let state = self.state.lock().unwrap();
+            let receiver = match *state {
+                State::Started(ref started) => started.receiver.clone(),
+                State::Stopped => {
+                    gst::error!(
+                        CAT,
+                        imp = self,
+                        "Could not get buffer from source pad: not started"
+                    );
+                    return Err(gst::FlowError::Error);
+                }
+            };
+            let timeout = DEFAULT_TIMEOUT;
+            let bytes = match wait(&self.canceller, receiver.recv(), timeout) {
+                Ok(Ok(bytes)) => Ok(Some(bytes)),
+                Ok(Err(_)) => Ok(None),
+                Err(e) => match e {
+                    WaitError::FutureAborted => {
+                        gst::warning!(CAT, imp = self, "Read from stream request aborted");
+                        Ok(None)
+                    }
+                    WaitError::FutureError(e) => {
+                        gst::error!(CAT, imp = self, "Failed to read from stream: {}", e);
+                        Err(Some(e))
+                    }
+                },
+            };
+            match bytes {
+                Ok(Some(Ok(bytes))) => {
+                    let buffer = gst::Buffer::from_slice(bytes);
+                    break Ok(CreateSuccess::NewBuffer(buffer));
+                }
+                Ok(Some(Err(err))) => {
+                    gst::error!(CAT, imp = self, "Could not get from iroh flow: {}", err);
+                    break Err(gst::FlowError::Error);
+                }
+                // Ok(Some(QuinnData::Eos)) => {
+                //     gst::debug!(CAT, imp = self, "End of stream");
+                //     break Err(gst::FlowError::Eos);
+                // }
+                Ok(None) => {
+                    gst::debug!(CAT, imp = self, "End of stream");
+                    break Err(gst::FlowError::Eos);
+                }
+                Err(None) => {
+                    gst::debug!(CAT, imp = self, "Flushing");
+                    break Err(gst::FlowError::Flushing);
+                }
+                Err(Some(err)) => {
+                    gst::error!(CAT, imp = self, "Could not GET: {}", err);
+                    break Err(gst::FlowError::Error);
+                }
             }
-        };
-        let bytes = match receiver.recv_blocking() {
-            Ok(bytes) => bytes,
-            Err(RecvError) => {
-                gst::error!(
-                    CAT,
-                    imp = self,
-                    "Could not get buffer from source pad: connection lost"
-                );
-                return Err(gst::FlowError::Error);
-            }
-        };
-        gst::trace!(CAT, imp = self, "Pushing buffer of {} bytes", bytes.len());
+        }
+        // let bytes = match receiver.recv_blocking() {
+        //     Ok(Ok(bytes)) => bytes,
+        //     Ok(Err(err)) => {
+        //         gst::error!(
+        //             CAT,
+        //             imp = self,
+        //             "Could not get buffer from source pad: {}",
+        //             err
+        //         );
+        //         return Err(gst::FlowError::Error);
+        //     }
+        //     Err(RecvError) => {
+        //         gst::error!(
+        //             CAT,
+        //             imp = self,
+        //             "Could not get buffer from source pad: flow channel dropped"
+        //         );
+        //         return Err(gst::FlowError::Error);
+        //     }
+        // };
+        // gst::trace!(CAT, imp = self, "Pushing buffer of {} bytes", bytes.len());
 
-        let buffer = gst::Buffer::from_slice(bytes);
-        Ok(CreateSuccess::NewBuffer(buffer.to_owned()))
+        // let buffer = gst::Buffer::from_slice(bytes);
+        // Ok(CreateSuccess::NewBuffer(buffer.to_owned()))
     }
 }

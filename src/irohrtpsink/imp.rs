@@ -16,6 +16,9 @@ use std::sync::LazyLock;
 use std::sync::Mutex;
 
 use crate::common::GlobalState;
+use crate::common::SendFlowReply;
+use crate::gst_err;
+use crate::util::Canceller;
 
 static CAT: LazyLock<gst::DebugCategory> = LazyLock::new(|| {
     gst::DebugCategory::new(
@@ -26,7 +29,8 @@ static CAT: LazyLock<gst::DebugCategory> = LazyLock::new(|| {
 });
 
 struct Started {
-    sender: async_channel::Sender<Bytes>,
+    data_sender: async_channel::Sender<Bytes>,
+    error_receiver: async_channel::Receiver<anyhow::Error>,
 }
 
 #[derive(Default)]
@@ -54,7 +58,7 @@ impl Default for Settings {
 pub struct IrohRtpSink {
     settings: Mutex<Settings>,
     state: Mutex<State>,
-    // canceller: Mutex<utils::Canceller>,
+    canceller: Mutex<Canceller>,
 }
 
 impl Default for IrohRtpSink {
@@ -62,7 +66,7 @@ impl Default for IrohRtpSink {
         Self {
             settings: Mutex::new(Settings::default()),
             state: Mutex::new(State::default()),
-            // canceller: Mutex::new(utils::Canceller::default()),
+            canceller: Mutex::new(Canceller::default()),
         }
     }
 }
@@ -180,15 +184,17 @@ impl BaseSinkImpl for IrohRtpSink {
         if let State::Started { .. } = *state {
             unreachable!("IrohRtpSrc already started");
         }
-        let sender = GlobalState::get()
+        let SendFlowReply {
+            data_sender,
+            error_receiver,
+        } = GlobalState::get()
+            .map_err(gst_err!())?
             .send_flow(node_id, flow_id)
-            .map_err(|err| {
-                gst::error_msg!(
-                    gst::ResourceError::Failed,
-                    ["failed to init send flow: {}", err]
-                )
-            })?;
-        *state = State::Started(Started { sender });
+            .map_err(gst_err!())?;
+        *state = State::Started(Started {
+            data_sender,
+            error_receiver,
+        });
         Ok(())
     }
 
@@ -204,7 +210,21 @@ impl BaseSinkImpl for IrohRtpSink {
     fn render(&self, buffer: &gst::Buffer) -> Result<gst::FlowSuccess, gst::FlowError> {
         let state = self.state.lock().unwrap();
         let sender = match *state {
-            State::Started(ref started) => started.sender.clone(),
+            State::Started(ref started) => {
+                match started.error_receiver.try_recv() {
+                    Ok(err) => {
+                        gst::element_imp_error!(
+                            self,
+                            gst::CoreError::Failed,
+                            ["Send flow failed: {:?}", err]
+                        );
+                        return Err(gst::FlowError::Error);
+                    }
+                    Err(async_channel::TryRecvError::Empty) => {}
+                    Err(async_channel::TryRecvError::Closed) => {}
+                }
+                started.data_sender.clone()
+            }
             State::Stopped => {
                 gst::element_imp_error!(self, gst::CoreError::Failed, ["Not started yet"]);
                 return Err(gst::FlowError::Error);
@@ -238,17 +258,17 @@ impl BaseSinkImpl for IrohRtpSink {
     //     }
     // }
 
-    // fn unlock(&self) -> Result<(), gst::ErrorMessage> {
-    //     let mut canceller = self.canceller.lock().unwrap();
-    //     canceller.abort();
-    //     Ok(())
-    // }
+    fn unlock(&self) -> Result<(), gst::ErrorMessage> {
+        let mut canceller = self.canceller.lock().unwrap();
+        canceller.abort();
+        Ok(())
+    }
 
-    // fn unlock_stop(&self) -> Result<(), gst::ErrorMessage> {
-    //     let mut canceller = self.canceller.lock().unwrap();
-    //     if matches!(&*canceller, utils::Canceller::Cancelled) {
-    //         *canceller = utils::Canceller::None;
-    //     }
-    //     Ok(())
-    // }
+    fn unlock_stop(&self) -> Result<(), gst::ErrorMessage> {
+        let mut canceller = self.canceller.lock().unwrap();
+        if matches!(&*canceller, Canceller::Cancelled) {
+            *canceller = Canceller::None;
+        }
+        Ok(())
+    }
 }
