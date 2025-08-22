@@ -50,6 +50,11 @@
             # Additional environment variables or build phases/hooks can be set
             # here *without* rebuilding all dependency crates
             # MY_CUSTOM_VAR = "some value";
+            installPhase = ''
+              mkdir -p $out/lib/gstreamer-1.0
+              # replace with actual build output
+              cp target/release/libgstiroh.so $out/lib/gstreamer-1.0/
+            '';
           }
         );
       in
@@ -72,8 +77,6 @@
           packages = with pkgs; [
             gst_all_1.gst-plugins-base
             gst_all_1.gst-plugins-good
-            ripgrep
-            cargo-deny
             cargo-expand
           ];
         };
