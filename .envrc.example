@@ -1,0 +1,2 @@
+# for development with nix, `cp .envrc.example .envrc && direnv allow`
+use flake
